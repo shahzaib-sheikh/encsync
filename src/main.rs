@@ -10,7 +10,7 @@ use clap::Parser;
 
 fn main() -> Result<()> {
     println!("Hello, world!");
-    let args = args::get_args();
+    let _args = args::get_args();
     env_logger::init();
     info!("starting up");
     warn!("oops, nothing implemented!");

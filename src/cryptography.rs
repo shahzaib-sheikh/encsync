@@ -1,11 +1,8 @@
 use anyhow::anyhow;
-use chacha20poly1305::{
-    aead::{stream, Aead, NewAead},
-    XChaCha20Poly1305,
-};
+use chacha20poly1305::{aead::stream, KeyInit, XChaCha20Poly1305};
 use rand::{rngs::OsRng, RngCore};
 use std::{
-    fs::{self, File},
+    fs::File,
     io::{Read, Write},
 };
 
@@ -23,21 +20,22 @@ fn encrypt_file(
     let mut buffer = [0u8; BUFFER_LEN];
 
     let mut source_file = File::open(source_file_path)?;
-    let mut dist_file = File::create(dist_file_path)?;
+    let mut dest_file = File::create(dist_file_path)?;
 
     loop {
         let read_count = source_file.read(&mut buffer)?;
 
         if read_count == BUFFER_LEN {
-            let ciphertext = stream_encryptor
-                .encrypt_next(buffer.as_slice())
+            let cipher_text = stream_encryptor
+                .encrypt_next(&buffer[..read_count])
                 .map_err(|err| anyhow!("Encrypting large file: {}", err))?;
-            dist_file.write(&ciphertext)?;
+
+            dest_file.write(&cipher_text)?;
         } else {
-            let ciphertext = stream_encryptor
+            let cipher_text = stream_encryptor
                 .encrypt_last(&buffer[..read_count])
                 .map_err(|err| anyhow!("Encrypting large file: {}", err))?;
-            dist_file.write(&ciphertext)?;
+            dest_file.write(&cipher_text)?;
             break;
         }
     }
@@ -83,6 +81,18 @@ fn decrypt_file(
     Ok(())
 }
 
+pub fn generate_key() -> [u8; 32] {
+    let mut key = [0u8; 32];
+    OsRng.fill_bytes(&mut key);
+    key
+}
+
+pub fn generate_nonce() -> [u8; 19] {
+    let mut nonce = [0u8; 19];
+    OsRng.fill_bytes(&mut nonce);
+    nonce
+}
+
 // ==================== TESTS ==================== //
 #[cfg(test)]
 mod tests {
@@ -96,16 +106,18 @@ mod tests {
         // Create a temporary file to encrypt
         let plaintext = "Hello, world!";
         let temp_file = NamedTempFile::new().unwrap();
+        let temp_file2 = NamedTempFile::new().unwrap();
         let mut file = File::create(temp_file.path()).unwrap();
+
         file.write_all(plaintext.as_bytes()).unwrap();
 
         // Encrypt the file
-        let key = "my secret key";
-        let nonce: [u8; 19] = [0; 19];
-        encrypt_file(temp_file.path(), key, &nonce).unwrap();
+        let key = generate_key();
+        let nonce = generate_nonce();
+        encrypt_file(temp_file.path(), temp_file2.path(), &key, &nonce).unwrap();
 
         // Read the encrypted file and verify its contents
-        let mut encrypted_file = File::open(temp_file.path()).unwrap();
+        let mut encrypted_file = File::open(temp_file2.path()).unwrap();
         let mut encrypted_contents = String::new();
         encrypted_file
             .read_to_string(&mut encrypted_contents)
@@ -114,65 +126,54 @@ mod tests {
 
         // Decrypt the file and verify its contents
         let mut decrypted_contents = String::new();
-        decrypt_file(temp_file.path(), key)
-            .unwrap()
-            .read_to_string(&mut decrypted_contents)
-            .unwrap();
-        assert_eq!(decrypted_contents, plaintext);
-    }
+        let temp_file3 = NamedTempFile::new().unwrap();
 
-    #[test]
-    fn test_decrypt_file() {
-        // Create a temporary file to decrypt
-        let plaintext = "Hello, world!";
-        let temp_file = NamedTempFile::new().unwrap();
-        let mut file = File::create(temp_file.path()).unwrap();
-        file.write_all(plaintext.as_bytes()).unwrap();
+        decrypt_file(temp_file2.path(), temp_file3.path(), &key, &nonce).unwrap();
 
-        // Encrypt the file
-        let key = "my secret key";
-        encrypt_file(temp_file.path(), key).unwrap();
-
-        // Decrypt the file and verify its contents
+        let mut decrypted_file = File::open(temp_file3.path()).unwrap();
         let mut decrypted_contents = String::new();
-        decrypt_file(temp_file.path(), key)
-            .unwrap()
+        decrypted_file
             .read_to_string(&mut decrypted_contents)
             .unwrap();
+
         assert_eq!(decrypted_contents, plaintext);
-    }
-
-    #[test]
-    fn test_encrypt_file_with_invalid_key() {
-        // Create a temporary file to encrypt
-        let plaintext = "Hello, world!";
-        let temp_file = NamedTempFile::new().unwrap();
-        let mut file = File::create(temp_file.path()).unwrap();
-        file.write_all(plaintext.as_bytes()).unwrap();
-
-        // Encrypt the file with an invalid key
-        let key = "";
-        let result = encrypt_file(temp_file.path(), key);
-
-        // Verify that the encryption failed
-        assert!(result.is_err());
     }
 
     #[test]
     fn test_decrypt_file_with_invalid_key() {
-        // Create a temporary file to decrypt
+        // Create a temporary file to encrypt
         let plaintext = "Hello, world!";
         let temp_file = NamedTempFile::new().unwrap();
+        let temp_file2 = NamedTempFile::new().unwrap();
         let mut file = File::create(temp_file.path()).unwrap();
+
         file.write_all(plaintext.as_bytes()).unwrap();
 
         // Encrypt the file
-        let key = "my secret key";
-        encrypt_file(temp_file.path(), key).unwrap();
+        let key = generate_key();
+        let nonce = generate_nonce();
+        encrypt_file(
+            temp_file.path().to_str(),
+            temp_file2.path().to_str(),
+            &key,
+            &nonce,
+        )
+        .unwrap();
 
-        // Decrypt the file with an invalid key
-        let key = "";
-        let result = decrypt_file(temp_file.path(), key);
+        // Read the encrypted file and verify its contents
+        let mut encrypted_file = File::open(temp_file2.path()).unwrap();
+        let mut encrypted_contents = String::new();
+        encrypted_file
+            .read_to_string(&mut encrypted_contents)
+            .unwrap();
+        assert_ne!(encrypted_contents, plaintext);
+
+        // Decrypt the file and verify its contents
+        let mut decrypted_contents = String::new();
+        let temp_file3 = NamedTempFile::new().unwrap();
+
+        let key2 = generate_key();
+        let result = decrypt_file(temp_file2.path(), temp_file3.path(), &key2, &nonce);
 
         // Verify that the decryption failed
         assert!(result.is_err());
