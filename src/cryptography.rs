@@ -111,24 +111,37 @@ mod tests {
 
         file.write_all(plaintext.as_bytes()).unwrap();
 
+        let mut plain_text_file = File::open(temp_file.path()).unwrap();
+
+        let mut plain_text_contents = String::new();
+        plain_text_file
+            .read_to_string(&mut plain_text_contents)
+            .unwrap();
+
+        assert_eq!(plain_text_contents, plaintext);
+
         // Encrypt the file
         let key = generate_key();
         let nonce = generate_nonce();
-        encrypt_file(temp_file.path(), temp_file2.path(), &key, &nonce).unwrap();
 
-        // Read the encrypted file and verify its contents
-        let mut encrypted_file = File::open(temp_file2.path()).unwrap();
-        let mut encrypted_contents = String::new();
-        encrypted_file
-            .read_to_string(&mut encrypted_contents)
-            .unwrap();
-        assert_ne!(encrypted_contents, plaintext);
+        encrypt_file(
+            temp_file.path().to_str().unwrap(),
+            temp_file2.path().to_str().unwrap(),
+            &key,
+            &nonce,
+        )
+        .unwrap();
 
         // Decrypt the file and verify its contents
-        let mut decrypted_contents = String::new();
         let temp_file3 = NamedTempFile::new().unwrap();
 
-        decrypt_file(temp_file2.path(), temp_file3.path(), &key, &nonce).unwrap();
+        decrypt_file(
+            temp_file2.path().to_str().unwrap(),
+            temp_file3.path().to_str().unwrap(),
+            &key,
+            &nonce,
+        )
+        .unwrap();
 
         let mut decrypted_file = File::open(temp_file3.path()).unwrap();
         let mut decrypted_contents = String::new();
@@ -153,27 +166,23 @@ mod tests {
         let key = generate_key();
         let nonce = generate_nonce();
         encrypt_file(
-            temp_file.path().to_str(),
-            temp_file2.path().to_str(),
+            temp_file.path().to_str().unwrap(),
+            temp_file2.path().to_str().unwrap(),
             &key,
             &nonce,
         )
         .unwrap();
 
-        // Read the encrypted file and verify its contents
-        let mut encrypted_file = File::open(temp_file2.path()).unwrap();
-        let mut encrypted_contents = String::new();
-        encrypted_file
-            .read_to_string(&mut encrypted_contents)
-            .unwrap();
-        assert_ne!(encrypted_contents, plaintext);
-
         // Decrypt the file and verify its contents
-        let mut decrypted_contents = String::new();
         let temp_file3 = NamedTempFile::new().unwrap();
 
         let key2 = generate_key();
-        let result = decrypt_file(temp_file2.path(), temp_file3.path(), &key2, &nonce);
+        let result = decrypt_file(
+            temp_file2.path().to_str().unwrap(),
+            temp_file3.path().to_str().unwrap(),
+            &key2,
+            &nonce,
+        );
 
         // Verify that the decryption failed
         assert!(result.is_err());

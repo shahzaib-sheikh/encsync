@@ -5,6 +5,7 @@ use std::io::{self, Write};
 mod args;
 mod output;
 mod cryptography;
+mod config;
 
 use clap::Parser;
 
